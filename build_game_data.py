@@ -169,24 +169,37 @@ def to_float(val) -> float | None:
 def learn_tag_mapping(
     overlap_pairs: list[tuple[list[str], list[str]]]
 ) -> dict[str, str]:
-    """Learn English -> Korean tag mapping from overlapping BoardLife & BGG games."""
+    """Learn English -> Korean tag mapping using Jaccard similarity to avoid false positives."""
     en_counts: Counter[str] = Counter()
+    kr_counts: Counter[str] = Counter()
     cooccur: dict[str, Counter[str]] = defaultdict(Counter)
 
     for en_tags, kr_tags in overlap_pairs:
         if not en_tags or not kr_tags:
             continue
-        for et in en_tags:
+        for et in set(en_tags):
             en_counts[et] += 1
-            for kt in kr_tags:
+        for kt in set(kr_tags):
+            kr_counts[kt] += 1
+        for et in set(en_tags):
+            for kt in set(kr_tags):
                 cooccur[et][kt] += 1
 
     mapping: dict[str, str] = {}
-    for et, total in en_counts.items():
-        if total < 2:
+    for et, total_en in en_counts.items():
+        if total_en < 3:
             continue
-        best_kt, best_cnt = cooccur[et].most_common(1)[0]
-        if best_cnt >= 2 and (best_cnt / total) >= 0.3:
+        best_kt = ""
+        best_score = 0.0
+        best_cnt = 0
+        for kt, cnt in cooccur[et].items():
+            union = total_en + kr_counts[kt] - cnt
+            jaccard = cnt / union if union > 0 else 0.0
+            if jaccard > best_score:
+                best_score = jaccard
+                best_kt = kt
+                best_cnt = cnt
+        if best_cnt >= 3 and best_score >= 0.25 and (best_cnt / total_en) >= 0.4:
             mapping[et] = best_kt
     return mapping
 
@@ -211,6 +224,7 @@ def build_games(bl_csv: Path, bgg_json: Path) -> tuple[list[dict], dict]:
     mech_pairs: list[tuple[list[str], list[str]]] = []
     theme_pairs: list[tuple[list[str], list[str]]] = []
 
+    bl_rows: list[dict] = []
     with open(bl_csv, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -219,12 +233,9 @@ def build_games(bl_csv: Path, bgg_json: Path) -> tuple[list[dict], dict]:
             if not rank_str.isdigit() or not year_str.isdigit():
                 continue
 
-            rank = int(rank_str)
-            year = int(year_str)
             difficulty = parse_difficulty(row.get("difficulty", ""))
             min_p, max_p = parse_range(row.get("players", ""))
             min_t, max_t = parse_range(row.get("playtime", ""))
-
             if difficulty is None or min_p is None or max_p is None or min_t is None or max_t is None:
                 continue
 
@@ -235,49 +246,80 @@ def build_games(bl_csv: Path, bgg_json: Path) -> tuple[list[dict], dict]:
             if bgg_id:
                 seen_bgg_ids.add(bgg_id)
 
-            title_kr = (row.get("title_kr") or "").strip()
-            title_en = (row.get("title_en") or "").strip()
-            if not HANGUL_RE.search(title_kr) and bgg_item and bgg_item.get("korean_names"):
-                title_kr = bgg_item["korean_names"][0]
-
-            has_kr = bool(HANGUL_RE.search(title_kr))
-            display_kr = title_kr if title_kr else title_en
-            display_en = title_en if display_en_differs(display_kr, title_en) else ""
-
             bl_mech = split_tags(row.get("mechanisms", ""))
             bl_theme = split_tags(row.get("themes", ""))
             if bgg_item:
                 mech_pairs.append((bgg_item.get("mechanics", []), bl_mech))
                 theme_pairs.append((bgg_item.get("categories", []), bl_theme))
 
-            thumb = (bgg_item.get("thumbnail") or "").strip() if bgg_item else ""
-
-            games.append({
-                "id": int(row["game_id"]) if (row.get("game_id") or "").isdigit() else rank,
-                "rank": rank,
-                "blRank": rank,
-                "bggRank": (to_int(bgg_item.get("rank")) or 99999) if bgg_item else 99999,
-                "partyRank": (to_int(bgg_item.get("partygames_rank")) or 99999) if bgg_item else 99999,
-                "familyRank": (to_int(bgg_item.get("familygames_rank")) or 99999) if bgg_item else 99999,
-                "kr": display_kr,
-                "en": display_en,
-                "hasKr": has_kr,
-                "year": year,
+            bl_rows.append({
+                "row": row,
+                "rank": int(rank_str),
+                "year": int(year_str),
                 "diff": difficulty,
-                "minP": min_p,
-                "maxP": max_p,
-                "timeStr": (row.get("playtime") or "").strip(),
-                "minT": min_t,
-                "maxT": max_t,
-                "mech": bl_mech,
-                "theme": bl_theme,
-                "designer": (row.get("designer") or "").strip(),
-                "url": (row.get("url") or "").strip(),
-                "thumb": thumb,
+                "min_p": min_p,
+                "max_p": max_p,
+                "min_t": min_t,
+                "max_t": max_t,
+                "bgg_item": bgg_item,
+                "bl_mech": bl_mech,
+                "bl_theme": bl_theme,
             })
 
     mech_map = learn_tag_mapping(mech_pairs)
     theme_map = learn_tag_mapping(theme_pairs)
+
+    for entry in bl_rows:
+        row = entry["row"]
+        bgg_item = entry["bgg_item"]
+        rank = entry["rank"]
+
+        title_kr = (row.get("title_kr") or "").strip()
+        title_en = (row.get("title_en") or "").strip()
+        if not HANGUL_RE.search(title_kr) and bgg_item and bgg_item.get("korean_names"):
+            title_kr = bgg_item["korean_names"][0]
+
+        has_kr = bool(HANGUL_RE.search(title_kr))
+        display_kr = title_kr if title_kr else title_en
+        display_en = title_en if display_en_differs(display_kr, title_en) else ""
+
+        # Union BoardLife tags + translated BGG tags to fix BoardLife's 5-tag truncation
+        merged_mech = list(entry["bl_mech"])
+        merged_theme = list(entry["bl_theme"])
+        if bgg_item:
+            for t in translate_tags(bgg_item.get("mechanics", []), mech_map):
+                if t not in merged_mech:
+                    merged_mech.append(t)
+            for t in translate_tags(bgg_item.get("categories", []), theme_map):
+                if t not in merged_theme:
+                    merged_theme.append(t)
+
+        thumb = (bgg_item.get("thumbnail") or "").strip() if bgg_item else ""
+
+        games.append({
+            "id": int(row["game_id"]) if (row.get("game_id") or "").isdigit() else rank,
+            "rank": rank,
+            "blRank": rank,
+            "bggRank": (to_int(bgg_item.get("rank")) or 99999) if bgg_item else 99999,
+            "partyRank": (to_int(bgg_item.get("partygames_rank")) or 99999) if bgg_item else 99999,
+            "familyRank": (to_int(bgg_item.get("familygames_rank")) or 99999) if bgg_item else 99999,
+            "kr": display_kr,
+            "en": display_en,
+            "sk": "" if has_kr else transliterate_en_to_kr(display_kr),
+            "hasKr": has_kr,
+            "year": entry["year"],
+            "diff": entry["diff"],
+            "minP": entry["min_p"],
+            "maxP": entry["max_p"],
+            "timeStr": (row.get("playtime") or "").strip(),
+            "minT": entry["min_t"],
+            "maxT": entry["max_t"],
+            "mech": merged_mech,
+            "theme": merged_theme,
+            "designer": (row.get("designer") or "").strip(),
+            "url": (row.get("url") or "").strip(),
+            "thumb": thumb,
+        })
 
     bgg_added = 0
     for item in bgg_items:

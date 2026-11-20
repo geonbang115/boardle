@@ -1,5 +1,6 @@
 (() => {
   const MAX_ATTEMPTS = 5;
+  const DAILY_EPOCH = "2026-11-20"; // #1 issue date
   const CHOSEONG = [
     "ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ",
     "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"
@@ -15,38 +16,14 @@
     { key: "theme", label: "테마", format: (g) => (g.theme.length ? g.theme.join(", ") : "-") },
   ];
 
-  const ATTR_HELP_MAP = {
-    year: {
-      title: "출시 연도",
-      body: "🟩 정확히 일치<br>🟨 ±3년 이내<br>⬜ 4년 이상 차이<br>▲ 더 최신 / ▼ 더 과거",
-    },
-    diff: {
-      title: "난이도 (웨이트)",
-      body: "🟩 ±0.15 이내<br>🟨 ±0.50 이내<br>⬜ 0.50 초과 차이<br>▲ 더 어려움 / ▼ 더 쉬움",
-    },
-    minP: {
-      title: "최소 인원",
-      body: "🟩 정확히 일치<br>🟨 ±1명 차이<br>⬜ 2명 이상 차이<br>▲ 더 많음 / ▼ 더 적음",
-    },
-    maxP: {
-      title: "최대 인원",
-      body: "🟩 정확히 일치<br>🟨 ±1명 차이<br>⬜ 2명 이상 차이<br>▲ 더 많음 / ▼ 더 적음",
-    },
-    time: {
-      title: "플레이 타임",
-      body: "🟩 범위 동일 또는 중간값 ±10분 이내<br>🟨 시간 구간 겹침 또는 중간값 ±30분 이내<br>▲ 더 김 / ▼ 더 짧음",
-    },
-    mech: {
-      title: "메커니즘",
-      body: "🟩 2개 이상 일치 (또는 전부 일치)<br>🟨 1개 일치 (일치 태그 초록 강조)<br>⬜ 겹치는 메커니즘 없음",
-    },
-    theme: {
-      title: "테마",
-      body: "🟩 2개 이상 일치 (또는 전부 일치)<br>🟨 1개 일치 (일치 태그 초록 강조)<br>⬜ 겹치는 테마 없음",
-    },
+  const TIER_LABELS = {
+    easy: "쉬움 (Top 150 + 파티50)",
+    normal: "보통 (데일리 풀)",
+    hard: "어려움 (한글 전체)",
   };
 
   const ALL_GAMES = Array.isArray(window.BGG_GAMES) ? window.BGG_GAMES : [];
+  const GAMES_BY_ID = new Map(ALL_GAMES.map((g) => [g.id, g]));
 
   const createEmptyHints = () => ({
     choseongCount: 0,
@@ -57,6 +34,7 @@
 
   const state = {
     mode: "daily", // "daily" | "endless"
+    dailyDateKey: "",
     endlessPool: "normal",
     target: null,
     guesses: [],
@@ -65,14 +43,17 @@
     revealedAnswer: false,
     attrPickerOpen: false,
     hints: createEmptyHints(),
+    statsTab: "daily", // "daily" | "endless" | "global"
     acIndex: -1,
     acResults: [],
   };
 
   // DOM Elements
   const el = {
+    issueBadge: document.getElementById("daily-issue-badge"),
     btnDaily: document.getElementById("btn-mode-daily"),
     btnEndless: document.getElementById("btn-mode-endless"),
+    btnArchive: document.getElementById("btn-archive"),
     poolSelect: document.getElementById("pool-select"),
     btnNewGame: document.getElementById("btn-new-game"),
     btnHelp: document.getElementById("btn-help"),
@@ -81,7 +62,7 @@
     acList: document.getElementById("autocomplete-list"),
     attemptCounter: document.getElementById("attempt-counter"),
     hintCounter: document.getElementById("hint-counter"),
-    hintControls: document.getElementById("hint-controls"),
+    endlessStreakBadge: document.getElementById("endless-streak-badge"),
     btnHintChoseong: document.getElementById("btn-hint-choseong"),
     btnHintDesigner: document.getElementById("btn-hint-designer"),
     btnHintArt: document.getElementById("btn-hint-art"),
@@ -93,23 +74,156 @@
     clueThemeList: document.getElementById("clue-theme-list"),
     hintDisplay: document.getElementById("hint-display"),
     resultBanner: document.getElementById("result-banner"),
+    btnCriteriaHelp: document.getElementById("btn-criteria-help"),
+    criteriaPanel: document.getElementById("criteria-panel"),
     guessTbody: document.getElementById("guess-tbody"),
     emptyState: document.getElementById("empty-state"),
     modalHelp: document.getElementById("modal-help"),
     modalStats: document.getElementById("modal-stats"),
+    modalArchive: document.getElementById("modal-archive"),
+    archiveList: document.getElementById("archive-list"),
+    tabStatsDaily: document.getElementById("tab-stats-daily"),
+    tabStatsEndless: document.getElementById("tab-stats-endless"),
+    tabStatsGlobal: document.getElementById("tab-stats-global"),
     statsBody: document.getElementById("stats-body"),
-    attrPopover: document.getElementById("attr-tooltip-popover"),
     toast: document.getElementById("toast"),
   };
 
-  function getTodayKey() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
+  // Date Helpers
+  function formatDateKey(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+    const d = String(dateObj.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
   }
 
+  function getTodayKey() {
+    return formatDateKey(new Date());
+  }
+
+  function parseDateKey(dateKey) {
+    const [y, m, d] = dateKey.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  function getPrevDateKey(dateKey) {
+    const d = parseDateKey(dateKey);
+    d.setDate(d.getDate() - 1);
+    return formatDateKey(d);
+  }
+
+  function getIssueNumber(dateKey) {
+    const start = parseDateKey(DAILY_EPOCH);
+    const cur = parseDateKey(dateKey);
+    const diffDays = Math.round((cur - start) / 86400000);
+    return Math.max(1, diffDays + 1);
+  }
+
+  function getAllArchiveDateKeys() {
+    const keys = [];
+    const today = getTodayKey();
+    let cur = parseDateKey(DAILY_EPOCH);
+    const end = parseDateKey(today);
+    if (cur > end) return [today];
+    while (cur <= end) {
+      keys.push(formatDateKey(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return keys.reverse(); // Newest first
+  }
+
+  function getClientId() {
+    try {
+      let cid = localStorage.getItem("boardle_client_id_v1");
+      if (!cid) {
+        cid = (crypto.randomUUID ? crypto.randomUUID() : `u_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+        localStorage.setItem("boardle_client_id_v1", cid);
+      }
+      return cid;
+    } catch {
+      return `anon_${Date.now()}`;
+    }
+  }
+
+  // Supabase Integration
+  function getSupabaseConfig() {
+    const cfg = window.BOARDLE_SUPABASE;
+    if (!cfg || !cfg.url || !cfg.anonKey) return null;
+    return { url: cfg.url.replace(/\/$/, ""), anonKey: cfg.anonKey };
+  }
+
+  async function logPlayToSupabase({ dateKey, mode, won, attempts, hints }) {
+    const cfg = getSupabaseConfig();
+    if (!cfg) return;
+    try {
+      await fetch(`${cfg.url}/rest/v1/play_logs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: cfg.anonKey,
+          Authorization: `Bearer ${cfg.anonKey}`,
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          client_id: getClientId(),
+          date_key: dateKey,
+          mode,
+          won: Boolean(won),
+          attempts,
+          hints,
+        }),
+      });
+    } catch {
+      // Non-blocking analytics failure
+    }
+  }
+
+  async function fetchGlobalStats() {
+    const cfg = getSupabaseConfig();
+    if (!cfg) return { configured: false };
+    try {
+      const res = await fetch(
+        `${cfg.url}/rest/v1/play_logs?select=client_id,date_key,mode,won,attempts,hints&limit=5000`,
+        {
+          headers: {
+            apikey: cfg.anonKey,
+            Authorization: `Bearer ${cfg.anonKey}`,
+          },
+        }
+      );
+      if (!res.ok) return { configured: true, error: true };
+      const rows = await res.json();
+      const today = getTodayKey();
+      const uniquePlayers = new Set(rows.map((r) => r.client_id)).size;
+      const totalPlays = rows.length;
+      const totalWins = rows.filter((r) => r.won).length;
+      const winRate = totalPlays > 0 ? Math.round((totalWins / totalPlays) * 100) : 0;
+
+      const todayRows = rows.filter((r) => r.mode === "daily" && r.date_key === today);
+      const todayWins = todayRows.filter((r) => r.won).length;
+      const todayRate = todayRows.length > 0 ? Math.round((todayWins / todayRows.length) * 100) : 0;
+
+      const winRows = rows.filter((r) => r.won);
+      const avgHints =
+        winRows.length > 0
+          ? (winRows.reduce((acc, r) => acc + (Number(r.hints) || 0), 0) / winRows.length).toFixed(1)
+          : "0.0";
+
+      return {
+        configured: true,
+        uniquePlayers,
+        totalPlays,
+        winRate,
+        todayPlays: todayRows.length,
+        todayRate,
+        avgHints,
+      };
+    } catch {
+      return { configured: true, error: true };
+    }
+  }
+
+  // Hashing & Target Selection
   function hashString(str) {
     let h = 2166136261;
     for (let i = 0; i < str.length; i++) {
@@ -144,6 +258,7 @@
     return pool[idx];
   }
 
+  // Korean Search & Choseong Helpers
   function normalizeQuery(str) {
     return (str || "").toLowerCase().replace(/[\s:·\-_'".!?]/g, "");
   }
@@ -190,13 +305,7 @@
     const chars = [];
     for (const ch of str) {
       if (!isRevealableChar(ch)) continue;
-      const code = ch.charCodeAt(0);
-      if (code >= 0xac00 && code <= 0xd7a3) {
-        const idx = Math.floor((code - 0xac00) / 588);
-        chars.push(CHOSEONG[idx]);
-      } else {
-        chars.push(ch);
-      }
+      chars.push(getChoseongChar(ch));
     }
     return chars;
   }
@@ -219,7 +328,8 @@
     );
   }
 
-  function loadStats() {
+  // Persistence: Daily Stats (with skip-day streak break)
+  function loadDailyStats() {
     const fallback = {
       played: 0,
       wins: 0,
@@ -238,61 +348,151 @@
     }
   }
 
-  function saveStats(stats) {
+  function saveDailyStats(stats) {
     try {
       localStorage.setItem("boardle_stats_v1", JSON.stringify(stats));
-    } catch {
-      // ignore storage errors
-    }
-  }
-
-  function recordDailyResult(won, attempts, hintCount = 0) {
-    const today = getTodayKey();
-    const stats = loadStats();
-    if (stats.lastDailyDate === today) return;
-    stats.played += 1;
-    stats.lastDailyDate = today;
-    if (won) {
-      stats.wins += 1;
-      if (hintCount === 0) stats.noHintWins += 1;
-      stats.totalHintsOnWins += hintCount;
-      stats.streak += 1;
-      stats.maxStreak = Math.max(stats.maxStreak, stats.streak);
-      stats.dist[attempts] = (stats.dist[attempts] || 0) + 1;
-    } else {
-      stats.streak = 0;
-    }
-    saveStats(stats);
-  }
-
-  function saveDailyState() {
-    if (state.mode !== "daily") return;
-    const payload = {
-      date: getTodayKey(),
-      targetId: state.target?.id,
-      guessIds: state.guesses.map((g) => g.id),
-      status: state.status,
-      continueAfterLoss: state.continueAfterLoss,
-      revealedAnswer: state.revealedAnswer,
-      hints: state.hints,
-    };
-    try {
-      localStorage.setItem("boardle_daily_v2", JSON.stringify(payload));
     } catch {
       // ignore
     }
   }
 
-  function loadDailyState() {
-    try {
-      const raw = localStorage.getItem("boardle_daily_v2");
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (parsed.date !== getTodayKey()) return null;
-      return parsed;
-    } catch {
-      return null;
+  function getEffectiveDailyStreak(stats) {
+    const today = getTodayKey();
+    const yesterday = getPrevDateKey(today);
+    if (stats.lastDailyDate === today || stats.lastDailyDate === yesterday) {
+      return stats.streak || 0;
     }
+    return 0;
+  }
+
+  function recordDailyResult(dateKey, won, attempts, hintCount = 0) {
+    const today = getTodayKey();
+    if (dateKey !== today) return; // Archive plays don't alter today's daily streak/stats
+    const stats = loadDailyStats();
+    if (stats.lastDailyDate === today) return;
+
+    const yesterday = getPrevDateKey(today);
+    stats.played += 1;
+    if (won) {
+      stats.wins += 1;
+      if (hintCount === 0) stats.noHintWins += 1;
+      stats.totalHintsOnWins += hintCount;
+      stats.streak = stats.lastDailyDate === yesterday ? stats.streak + 1 : 1;
+      stats.maxStreak = Math.max(stats.maxStreak, stats.streak);
+      stats.dist[attempts] = (stats.dist[attempts] || 0) + 1;
+    } else {
+      stats.streak = 0;
+    }
+    stats.lastDailyDate = today;
+    saveDailyStats(stats);
+  }
+
+  // Persistence: Daily Archive States (per dateKey)
+  function loadDailyArchiveMap() {
+    try {
+      const raw = localStorage.getItem("boardle_daily_archive_v1");
+      const map = raw ? JSON.parse(raw) : {};
+      // Migrate legacy boardle_daily_v2 if present
+      const legacyRaw = localStorage.getItem("boardle_daily_v2");
+      if (legacyRaw) {
+        const leg = JSON.parse(legacyRaw);
+        if (leg.date && !map[leg.date]) {
+          map[leg.date] = leg;
+          localStorage.setItem("boardle_daily_archive_v1", JSON.stringify(map));
+        }
+      }
+      return map;
+    } catch {
+      return {};
+    }
+  }
+
+  function saveDailyArchiveEntry() {
+    if (state.mode !== "daily" || !state.dailyDateKey) return;
+    try {
+      const map = loadDailyArchiveMap();
+      map[state.dailyDateKey] = {
+        date: state.dailyDateKey,
+        targetId: state.target?.id,
+        guessIds: state.guesses.map((g) => g.id),
+        status: state.status,
+        continueAfterLoss: state.continueAfterLoss,
+        revealedAnswer: state.revealedAnswer,
+        hints: state.hints,
+      };
+      localStorage.setItem("boardle_daily_archive_v1", JSON.stringify(map));
+    } catch {
+      // ignore
+    }
+  }
+
+  // Persistence: Endless Mode per-tier state & stats
+  function loadEndlessStateMap() {
+    try {
+      const raw = localStorage.getItem("boardle_endless_state_v1");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveEndlessState() {
+    if (state.mode !== "endless") return;
+    try {
+      const map = loadEndlessStateMap();
+      map[state.endlessPool] = {
+        targetId: state.target?.id,
+        guessIds: state.guesses.map((g) => g.id),
+        status: state.status,
+        continueAfterLoss: state.continueAfterLoss,
+        revealedAnswer: state.revealedAnswer,
+        hints: state.hints,
+      };
+      localStorage.setItem("boardle_endless_state_v1", JSON.stringify(map));
+    } catch {
+      // ignore
+    }
+  }
+
+  function loadEndlessStats() {
+    const emptyTier = () => ({ played: 0, wins: 0, streak: 0, maxStreak: 0, noHintWins: 0 });
+    const fallback = { easy: emptyTier(), normal: emptyTier(), hard: emptyTier() };
+    try {
+      const raw = localStorage.getItem("boardle_endless_stats_v1");
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return {
+        easy: { ...emptyTier(), ...(parsed.easy || {}) },
+        normal: { ...emptyTier(), ...(parsed.normal || {}) },
+        hard: { ...emptyTier(), ...(parsed.hard || {}) },
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  function recordEndlessResult(tier, won, hintCount = 0) {
+    const stats = loadEndlessStats();
+    const t = stats[tier] || stats.normal;
+    t.played += 1;
+    if (won) {
+      t.wins += 1;
+      if (hintCount === 0) t.noHintWins += 1;
+      t.streak += 1;
+      t.maxStreak = Math.max(t.maxStreak, t.streak);
+    } else {
+      t.streak = 0;
+    }
+    try {
+      localStorage.setItem("boardle_endless_stats_v1", JSON.stringify(stats));
+    } catch {
+      // ignore
+    }
+  }
+
+  function persistCurrentState() {
+    if (state.mode === "daily") saveDailyArchiveEntry();
+    else saveEndlessState();
   }
 
   function showToast(msg) {
@@ -306,8 +506,7 @@
 
   // Comparison Logic
   function compareNumber(val, targetVal, exactTol, closeTol) {
-    const diff = val - targetVal;
-    const abs = Math.abs(diff);
+    const abs = Math.abs(val - targetVal);
     let status = "gray";
     if (abs <= exactTol) status = "green";
     else if (abs <= closeTol) status = "yellow";
@@ -328,11 +527,8 @@
     const overlaps = guess.minT <= target.maxT && target.minT <= guess.maxT;
 
     let status = "gray";
-    if (sameRange || midDiff <= 10) {
-      status = "green";
-    } else if (overlaps || midDiff <= 30) {
-      status = "yellow";
-    }
+    if (sameRange || midDiff <= 10) status = "green";
+    else if (overlaps || midDiff <= 30) status = "yellow";
 
     let dir = "";
     if (status !== "green") {
@@ -369,18 +565,9 @@
   // Rendering
   function createThumbHtml(game, cls = "game-thumb") {
     if (game.thumb) {
-      return `<img class="${cls}" src="${game.thumb}" alt="" loading="lazy" />`;
+      return `<img class="${cls}" src="${game.thumb}" alt="" loading="lazy" draggable="false" />`;
     }
     return `<div class="${cls} ac-thumb-placeholder">🎲</div>`;
-  }
-
-  const HELP_ATTRS = new Set(["diff", "time", "mech", "theme"]);
-
-  function mobileLabel(key, label) {
-    const helpBtn = HELP_ATTRS.has(key)
-      ? `<button type="button" class="attr-help-btn" data-help-attr="${key}" aria-label="${label} 기준">?</button>`
-      : "";
-    return `<div class="mobile-attr-label">${label}${helpBtn}</div>`;
   }
 
   function renderGrid() {
@@ -411,41 +598,41 @@
             ${createThumbHtml(guess)}
             <div>
               <div class="game-name-kr">${guess.kr}</div>
-              <div class="game-name-en">${guess.en}</div>
+              ${guess.en ? `<div class="game-name-en">${guess.en}</div>` : ""}
             </div>
           </div>
         </td>
         <td class="cell ${ev.year.status}" data-label="출시 연도">
-          ${mobileLabel("year", "출시 연도")}
+          <div class="mobile-attr-label">출시 연도</div>
           <span class="num-val">${guess.year}</span>
           ${ev.year.dir ? `<span class="num-dir">${ev.year.dir}</span>` : ""}
         </td>
         <td class="cell ${ev.diff.status}" data-label="난이도">
-          ${mobileLabel("diff", "난이도")}
+          <div class="mobile-attr-label">난이도</div>
           <span class="num-val">${guess.diff.toFixed(2)}</span>
           ${ev.diff.dir ? `<span class="num-dir">${ev.diff.dir}</span>` : ""}
         </td>
         <td class="cell ${ev.minP.status}" data-label="최소 인원">
-          ${mobileLabel("minP", "최소 인원")}
+          <div class="mobile-attr-label">최소 인원</div>
           <span class="num-val">${guess.minP}명</span>
           ${ev.minP.dir ? `<span class="num-dir">${ev.minP.dir}</span>` : ""}
         </td>
         <td class="cell ${ev.maxP.status}" data-label="최대 인원">
-          ${mobileLabel("maxP", "최대 인원")}
+          <div class="mobile-attr-label">최대 인원</div>
           <span class="num-val">${guess.maxP}명</span>
           ${ev.maxP.dir ? `<span class="num-dir">${ev.maxP.dir}</span>` : ""}
         </td>
         <td class="cell ${ev.time.status}" data-label="플레이 타임">
-          ${mobileLabel("time", "플레이 타임")}
+          <div class="mobile-attr-label">플레이 타임</div>
           <span class="num-val">${guess.timeStr}</span>
           ${ev.time.dir ? `<span class="num-dir">${ev.time.dir}</span>` : ""}
         </td>
         <td class="cell ${ev.mech.status}" data-label="메커니즘">
-          ${mobileLabel("mech", "메커니즘")}
+          <div class="mobile-attr-label">메커니즘</div>
           <div class="tag-list">${mechHtml}</div>
         </td>
         <td class="cell ${ev.theme.status}" data-label="테마">
-          ${mobileLabel("theme", "테마")}
+          <div class="mobile-attr-label">테마</div>
           <div class="tag-list">${themeHtml}</div>
         </td>
       `;
@@ -528,7 +715,6 @@
     el.btnHintAttrToggle.disabled = !canSpend;
     el.btnHintAttrToggle.classList.toggle("used", Object.keys(h.attrs).length > 0);
 
-    // Attribute picker pills
     el.attrPicker.classList.toggle("hidden", !state.attrPickerOpen || !canSpend);
     el.attrPickerList.innerHTML = ATTR_DEFS.map((attr) => {
       const revealed = Boolean(h.attrs[attr.key]);
@@ -550,13 +736,12 @@
         if (!state.hints.attrs[key] && canSpendHint()) {
           state.hints.attrs[key] = true;
           state.attrPickerOpen = false;
-          saveDailyState();
+          persistCurrentState();
           renderHints();
         }
       });
     });
 
-    // Hint Display Area
     const items = [];
     if (h.choseongCount > 0) {
       items.push(`
@@ -578,10 +763,10 @@
     if (h.art && state.target.thumb) {
       items.push(`
         <div class="hint-item">
-          <div class="hint-crop-wrap">
-            <img class="hint-crop-img" src="${state.target.thumb}" alt="박스아트 일부" />
+          <div class="hint-crop-wrap" oncontextmenu="return false;" ondragstart="return false;">
+            <img class="hint-crop-img" src="${state.target.thumb}" alt="박스아트 일부" draggable="false" />
           </div>
-          <div><strong>🖼️ 박스아트 일부:</strong> 이미지의 정중앙 영역입니다.</div>
+          <div><strong>🖼️ 박스아트 일부:</strong> 이미지의 정중앙 1/25 영역입니다 (약한 블러 적용).</div>
         </div>
       `);
     }
@@ -601,6 +786,21 @@
     } else {
       el.hintDisplay.classList.add("hidden");
       el.hintDisplay.innerHTML = "";
+    }
+  }
+
+  function renderHeaderBadges() {
+    if (state.mode === "daily") {
+      const issueNum = getIssueNumber(state.dailyDateKey);
+      const isToday = state.dailyDateKey === getTodayKey();
+      el.issueBadge.textContent = isToday ? `#${issueNum}` : `#${issueNum} (지난 문제)`;
+      el.issueBadge.classList.remove("hidden");
+      el.endlessStreakBadge.classList.add("hidden");
+    } else {
+      el.issueBadge.classList.add("hidden");
+      const eStats = loadEndlessStats()[state.endlessPool];
+      el.endlessStreakBadge.textContent = `🔥 연승: ${eStats.streak} (최고 ${eStats.maxStreak})`;
+      el.endlessStreakBadge.classList.remove("hidden");
     }
   }
 
@@ -654,18 +854,17 @@
       const btnShare = document.getElementById("btn-share");
       if (btnShare) btnShare.addEventListener("click", shareDailyResult);
       const btnBannerNew = document.getElementById("btn-banner-new");
-      if (btnBannerNew) btnBannerNew.addEventListener("click", () => startEndlessGame());
+      if (btnBannerNew) btnBannerNew.addEventListener("click", () => startEndlessGame(true));
       el.resultBanner.classList.remove("hidden");
       return;
     }
 
-    // Lost state (5 attempts used) and user hasn't chosen yet
     el.resultBanner.className = "result-banner loss";
     el.resultBanner.innerHTML = `
       <div class="result-info">
         <div>
           <div class="result-title">😢 5번의 시도를 모두 사용했습니다 (패배 · 힌트 ${hintCount}개)</div>
-          <div class="result-sub">힌트를 활용하며 끝까지 풀어보거나, 정답을 바로 확인할 수 있습니다.</div>
+          <div class="result-sub">힌트를 무제한으로 활용하며 끝까지 풀어보거나, 정답을 바로 확인할 수 있습니다.</div>
         </div>
       </div>
       <div class="result-actions">
@@ -679,7 +878,7 @@
     if (btnCont) {
       btnCont.addEventListener("click", () => {
         state.continueAfterLoss = true;
-        saveDailyState();
+        persistCurrentState();
         renderAll();
         el.searchInput.focus();
       });
@@ -689,7 +888,7 @@
       btnRev.addEventListener("click", () => {
         state.revealedAnswer = true;
         state.attrPickerOpen = false;
-        saveDailyState();
+        persistCurrentState();
         renderAll();
       });
     }
@@ -700,6 +899,7 @@
   }
 
   function renderAll() {
+    renderHeaderBadges();
     renderGrid();
     renderClueBoard();
     renderHints();
@@ -707,7 +907,7 @@
   }
 
   function shareDailyResult() {
-    const dateKey = getTodayKey();
+    const issueNum = getIssueNumber(state.dailyDateKey);
     const firstFive = state.guesses.slice(0, MAX_ATTEMPTS);
     const score = state.status === "won" ? `${firstFive.length}/${MAX_ATTEMPTS}` : `X/${MAX_ATTEMPTS}`;
     const hintCount = getHintCount();
@@ -724,7 +924,7 @@
         emojiMap[ev.theme.status],
       ].join("");
     });
-    const text = `🎲 BOARDLE ${dateKey} · ${score} · 💡힌트 ${hintCount}\n${rows.join("\n")}`;
+    const text = `🎲 BOARDLE #${issueNum} (${state.dailyDateKey}) · ${score} · 💡힌트 ${hintCount}\n${rows.join("\n")}`;
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(
         () => showToast("결과가 클립보드에 복사되었습니다!"),
@@ -753,18 +953,42 @@
       if (isCorrect) {
         state.status = "won";
         state.attrPickerOpen = false;
-        if (state.mode === "daily") recordDailyResult(true, state.guesses.length, getHintCount());
+        const hc = getHintCount();
+        if (state.mode === "daily") {
+          recordDailyResult(state.dailyDateKey, true, state.guesses.length, hc);
+        } else {
+          recordEndlessResult(state.endlessPool, true, hc);
+        }
+        logPlayToSupabase({
+          dateKey: state.mode === "daily" ? state.dailyDateKey : getTodayKey(),
+          mode: state.mode === "daily" ? "daily" : `endless_${state.endlessPool}`,
+          won: true,
+          attempts: state.guesses.length,
+          hints: hc,
+        });
       } else if (state.guesses.length >= MAX_ATTEMPTS) {
         state.status = "lost";
         state.attrPickerOpen = false;
-        if (state.mode === "daily") recordDailyResult(false, MAX_ATTEMPTS, getHintCount());
+        const hc = getHintCount();
+        if (state.mode === "daily") {
+          recordDailyResult(state.dailyDateKey, false, MAX_ATTEMPTS, hc);
+        } else {
+          recordEndlessResult(state.endlessPool, false, hc);
+        }
+        logPlayToSupabase({
+          dateKey: state.mode === "daily" ? state.dailyDateKey : getTodayKey(),
+          mode: state.mode === "daily" ? "daily" : `endless_${state.endlessPool}`,
+          won: false,
+          attempts: MAX_ATTEMPTS,
+          hints: hc,
+        });
       }
     } else if (state.status === "lost" && state.continueAfterLoss && isCorrect) {
       state.revealedAnswer = true;
       state.attrPickerOpen = false;
     }
 
-    saveDailyState();
+    persistCurrentState();
     renderAll();
   }
 
@@ -842,14 +1066,15 @@
   }
 
   // Mode Switching
-  function startDailyGame() {
+  function startDailyGame(dateKey = getTodayKey()) {
     state.mode = "daily";
+    state.dailyDateKey = dateKey;
     el.btnDaily.classList.add("active");
     el.btnEndless.classList.remove("active");
+    el.btnArchive.classList.remove("hidden");
     el.poolSelect.classList.add("hidden");
     el.btnNewGame.classList.add("hidden");
 
-    const dateKey = getTodayKey();
     const target = pickDailyTarget(dateKey);
     state.target = target;
     state.guesses = [];
@@ -859,10 +1084,10 @@
     state.attrPickerOpen = false;
     state.hints = createEmptyHints();
 
-    const saved = loadDailyState();
+    const archiveMap = loadDailyArchiveMap();
+    const saved = archiveMap[dateKey];
     if (saved && saved.targetId === target.id) {
-      const byId = new Map(ALL_GAMES.map((g) => [g.id, g]));
-      state.guesses = (saved.guessIds || []).map((id) => byId.get(id)).filter(Boolean);
+      state.guesses = (saved.guessIds || []).map((id) => GAMES_BY_ID.get(id)).filter(Boolean);
       state.status = saved.status || "playing";
       state.continueAfterLoss = Boolean(saved.continueAfterLoss);
       state.revealedAnswer = Boolean(saved.revealedAnswer);
@@ -874,70 +1099,185 @@
     renderAll();
   }
 
-  function startEndlessGame() {
+  function startEndlessGame(forceNew = false) {
     state.mode = "endless";
     el.btnEndless.classList.add("active");
     el.btnDaily.classList.remove("active");
+    el.btnArchive.classList.add("hidden");
     el.poolSelect.classList.remove("hidden");
     el.btnNewGame.classList.remove("hidden");
 
     state.endlessPool = el.poolSelect.value || "normal";
-    state.target = pickRandomTarget(state.endlessPool);
-    state.guesses = [];
-    state.status = "playing";
-    state.continueAfterLoss = false;
-    state.revealedAnswer = false;
     state.attrPickerOpen = false;
-    state.hints = createEmptyHints();
+
+    const savedMap = loadEndlessStateMap();
+    const saved = !forceNew ? savedMap[state.endlessPool] : null;
+    if (saved && GAMES_BY_ID.has(saved.targetId)) {
+      state.target = GAMES_BY_ID.get(saved.targetId);
+      state.guesses = (saved.guessIds || []).map((id) => GAMES_BY_ID.get(id)).filter(Boolean);
+      state.status = saved.status || "playing";
+      state.continueAfterLoss = Boolean(saved.continueAfterLoss);
+      state.revealedAnswer = Boolean(saved.revealedAnswer);
+      state.hints = saved.hints || createEmptyHints();
+    } else {
+      state.target = pickRandomTarget(state.endlessPool);
+      state.guesses = [];
+      state.status = "playing";
+      state.continueAfterLoss = false;
+      state.revealedAnswer = false;
+      state.hints = createEmptyHints();
+      saveEndlessState();
+    }
 
     el.searchInput.value = "";
     hideAutocomplete();
     renderAll();
   }
 
-  function renderStatsModal() {
-    const s = loadStats();
-    const winRate = s.played > 0 ? Math.round((s.wins / s.played) * 100) : 0;
-    const avgHints = s.wins > 0 ? (s.totalHintsOnWins / s.wins).toFixed(1) : "0.0";
-    const maxDist = Math.max(1, ...Object.values(s.dist));
+  // Archive Modal
+  function renderArchiveModal() {
+    const keys = getAllArchiveDateKeys();
+    const archiveMap = loadDailyArchiveMap();
+    const today = getTodayKey();
 
-    const distHtml = [1, 2, 3, 4, 5]
-      .map((n) => {
-        const cnt = s.dist[n] || 0;
-        const pct = Math.max(8, Math.round((cnt / maxDist) * 100));
+    el.archiveList.innerHTML = keys
+      .map((dk) => {
+        const num = getIssueNumber(dk);
+        const saved = archiveMap[dk];
+        let badge = `<span class="archive-status" style="color:var(--muted);">⬜ 미도전</span>`;
+        if (saved?.status === "won") {
+          badge = `<span class="archive-status" style="color:var(--green-bright);">🟩 성공 (${(saved.guessIds || []).length}/${MAX_ATTEMPTS})</span>`;
+        } else if (saved?.status === "lost") {
+          badge = `<span class="archive-status" style="color:var(--red);">🟥 실패</span>`;
+        } else if (saved && (saved.guessIds || []).length > 0) {
+          badge = `<span class="archive-status" style="color:var(--yellow-bright);">🟨 진행 중</span>`;
+        }
+        const isCurrent = state.mode === "daily" && state.dailyDateKey === dk;
+        const todayTag = dk === today ? " (오늘)" : "";
         return `
-          <div class="dist-row">
-            <span>${n}회</span>
-            <div class="dist-bar-wrap">
-              <div class="dist-bar" style="width:${cnt > 0 ? pct : 0}%">${cnt}</div>
-            </div>
-          </div>
+          <button type="button" class="archive-item ${isCurrent ? "current" : ""}" data-date-key="${dk}">
+            <span>#${num} · ${dk}${todayTag}</span>
+            ${badge}
+          </button>
         `;
       })
       .join("");
 
+    el.archiveList.querySelectorAll("[data-date-key]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        el.modalArchive.classList.add("hidden");
+        startDailyGame(btn.dataset.dateKey);
+      });
+    });
+  }
+
+  // Stats Modal
+  async function renderStatsModal() {
+    el.tabStatsDaily.classList.toggle("active", state.statsTab === "daily");
+    el.tabStatsEndless.classList.toggle("active", state.statsTab === "endless");
+    el.tabStatsGlobal.classList.toggle("active", state.statsTab === "global");
+
+    if (state.statsTab === "daily") {
+      const s = loadDailyStats();
+      const winRate = s.played > 0 ? Math.round((s.wins / s.played) * 100) : 0;
+      const avgHints = s.wins > 0 ? (s.totalHintsOnWins / s.wins).toFixed(1) : "0.0";
+      const curStreak = getEffectiveDailyStreak(s);
+      const maxDist = Math.max(1, ...Object.values(s.dist));
+
+      const distHtml = [1, 2, 3, 4, 5]
+        .map((n) => {
+          const cnt = s.dist[n] || 0;
+          const pct = Math.max(8, Math.round((cnt / maxDist) * 100));
+          return `
+            <div class="dist-row">
+              <span>${n}회</span>
+              <div class="dist-bar-wrap">
+                <div class="dist-bar" style="width:${cnt > 0 ? pct : 0}%">${cnt}</div>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+
+      el.statsBody.innerHTML = `
+        <div class="stats-grid">
+          <div class="stat-box"><div class="stat-num">${s.played}</div><div class="stat-lbl">플레이</div></div>
+          <div class="stat-box"><div class="stat-num">${winRate}%</div><div class="stat-lbl">승률</div></div>
+          <div class="stat-box"><div class="stat-num">${curStreak}</div><div class="stat-lbl">현재 연승</div></div>
+          <div class="stat-box"><div class="stat-num">${s.maxStreak}</div><div class="stat-lbl">최대 연승</div></div>
+        </div>
+        <div class="stats-grid stats-grid-sub">
+          <div class="stat-box"><div class="stat-num">${s.noHintWins || 0}</div><div class="stat-lbl">노힌트 클리어</div></div>
+          <div class="stat-box"><div class="stat-num">${avgHints}</div><div class="stat-lbl">평균 힌트 (승리 시)</div></div>
+        </div>
+        <p style="font-weight:700; margin-bottom:8px;">시도 횟수 분포 (5회 이내)</p>
+        ${distHtml}
+      `;
+      return;
+    }
+
+    if (state.statsTab === "endless") {
+      const es = loadEndlessStats();
+      el.statsBody.innerHTML = ["easy", "normal", "hard"]
+        .map((tier) => {
+          const t = es[tier];
+          const rate = t.played > 0 ? Math.round((t.wins / t.played) * 100) : 0;
+          return `
+            <div class="endless-tier-card">
+              <div class="endless-tier-title">${TIER_LABELS[tier]}</div>
+              <div class="endless-tier-row">
+                <span>플레이 ${t.played}판 · 승률 ${rate}%</span>
+                <span>🔥 연승 ${t.streak} / 최고 ${t.maxStreak}</span>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+      return;
+    }
+
+    // Global Stats (Supabase)
+    el.statsBody.innerHTML = `<p style="text-align:center; color:var(--muted); padding:20px 0;">전체 통계를 불러오는 중...</p>`;
+    const gs = await fetchGlobalStats();
+    if (!gs.configured) {
+      el.statsBody.innerHTML = `<p style="text-align:center; color:var(--muted); padding:20px 0;">전체 통계 서버가 아직 연결되지 않았습니다.</p>`;
+      return;
+    }
+    if (gs.error) {
+      el.statsBody.innerHTML = `<p style="text-align:center; color:var(--muted); padding:20px 0;">통계를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</p>`;
+      return;
+    }
+
     el.statsBody.innerHTML = `
       <div class="stats-grid">
-        <div class="stat-box"><div class="stat-num">${s.played}</div><div class="stat-lbl">플레이</div></div>
-        <div class="stat-box"><div class="stat-num">${winRate}%</div><div class="stat-lbl">승률</div></div>
-        <div class="stat-box"><div class="stat-num">${s.streak}</div><div class="stat-lbl">현재 연승</div></div>
-        <div class="stat-box"><div class="stat-num">${s.maxStreak}</div><div class="stat-lbl">최대 연승</div></div>
+        <div class="stat-box"><div class="stat-num">${gs.uniquePlayers}</div><div class="stat-lbl">총 플레이어</div></div>
+        <div class="stat-box"><div class="stat-num">${gs.totalPlays}</div><div class="stat-lbl">총 플레이 판수</div></div>
+        <div class="stat-box"><div class="stat-num">${gs.winRate}%</div><div class="stat-lbl">전체 정답률</div></div>
+        <div class="stat-box"><div class="stat-num">${gs.avgHints}</div><div class="stat-lbl">평균 힌트</div></div>
       </div>
       <div class="stats-grid stats-grid-sub">
-        <div class="stat-box"><div class="stat-num">${s.noHintWins || 0}</div><div class="stat-lbl">노힌트 클리어</div></div>
-        <div class="stat-box"><div class="stat-num">${avgHints}</div><div class="stat-lbl">평균 힌트 (승리 시)</div></div>
+        <div class="stat-box"><div class="stat-num">${gs.todayPlays}</div><div class="stat-lbl">오늘의 게임 도전</div></div>
+        <div class="stat-box"><div class="stat-num">${gs.todayRate}%</div><div class="stat-lbl">오늘의 게임 정답률</div></div>
       </div>
-      <p style="font-weight:700; margin-bottom:8px;">시도 횟수 분포 (5회 이내)</p>
-      ${distHtml}
     `;
   }
 
   // Event Listeners
   function bindEvents() {
-    el.btnDaily.addEventListener("click", startDailyGame);
-    el.btnEndless.addEventListener("click", startEndlessGame);
-    el.poolSelect.addEventListener("change", startEndlessGame);
-    el.btnNewGame.addEventListener("click", startEndlessGame);
+    el.btnDaily.addEventListener("click", () => startDailyGame(getTodayKey()));
+    el.btnEndless.addEventListener("click", () => startEndlessGame(false));
+    el.poolSelect.addEventListener("change", () => startEndlessGame(false));
+    el.btnNewGame.addEventListener("click", () => startEndlessGame(true));
+
+    el.btnArchive.addEventListener("click", () => {
+      renderArchiveModal();
+      el.modalArchive.classList.remove("hidden");
+    });
+
+    el.btnCriteriaHelp.addEventListener("click", () => {
+      const open = el.criteriaPanel.classList.toggle("hidden");
+      el.btnCriteriaHelp.classList.toggle("active", !open);
+    });
 
     el.searchInput.addEventListener("input", (e) => {
       updateAutocomplete(e.target.value);
@@ -963,63 +1303,9 @@
       }
     });
 
-    let pinnedHelpBtn = null;
-
-    function showAttrTooltip(btn, key) {
-      const info = ATTR_HELP_MAP[key];
-      if (!info) return;
-      el.attrPopover.innerHTML = `<div class="attr-tooltip-title">${info.title}</div><div>${info.body}</div>`;
-      el.attrPopover.classList.remove("hidden");
-
-      const rect = btn.getBoundingClientRect();
-      const popRect = el.attrPopover.getBoundingClientRect();
-      let left = rect.left + rect.width / 2 - popRect.width / 2;
-      left = Math.max(8, Math.min(left, window.innerWidth - popRect.width - 8));
-      let top = rect.bottom + 8;
-      if (top + popRect.height > window.innerHeight - 8) {
-        top = Math.max(8, rect.top - popRect.height - 8);
-      }
-      el.attrPopover.style.left = `${left}px`;
-      el.attrPopover.style.top = `${top}px`;
-    }
-
-    function hideAttrTooltip() {
-      el.attrPopover.classList.add("hidden");
-      if (pinnedHelpBtn) {
-        pinnedHelpBtn.classList.remove("active");
-        pinnedHelpBtn = null;
-      }
-    }
-
-    document.addEventListener("mouseover", (e) => {
-      const btn = e.target.closest(".attr-help-btn");
-      if (!btn || pinnedHelpBtn) return;
-      showAttrTooltip(btn, btn.dataset.helpAttr);
-    });
-
-    document.addEventListener("mouseout", (e) => {
-      const btn = e.target.closest(".attr-help-btn");
-      if (!btn || pinnedHelpBtn) return;
-      hideAttrTooltip();
-    });
-
     document.addEventListener("click", (e) => {
       if (!e.target.closest(".search-box-wrap")) {
         hideAutocomplete();
-      }
-      const helpBtn = e.target.closest(".attr-help-btn");
-      if (helpBtn) {
-        e.stopPropagation();
-        if (pinnedHelpBtn === helpBtn) {
-          hideAttrTooltip();
-        } else {
-          hideAttrTooltip();
-          pinnedHelpBtn = helpBtn;
-          helpBtn.classList.add("active");
-          showAttrTooltip(helpBtn, helpBtn.dataset.helpAttr);
-        }
-      } else if (pinnedHelpBtn) {
-        hideAttrTooltip();
       }
     });
 
@@ -1027,7 +1313,7 @@
       const maxChars = getChoseongChars(state.target.kr).length;
       if (canSpendHint() && state.hints.choseongCount < maxChars) {
         state.hints.choseongCount += 1;
-        saveDailyState();
+        persistCurrentState();
         renderHints();
       }
     });
@@ -1035,7 +1321,7 @@
     el.btnHintDesigner.addEventListener("click", () => {
       if (canSpendHint() && !state.hints.designer) {
         state.hints.designer = true;
-        saveDailyState();
+        persistCurrentState();
         renderHints();
       }
     });
@@ -1043,7 +1329,7 @@
     el.btnHintArt.addEventListener("click", () => {
       if (canSpendHint() && !state.hints.art && state.target.thumb) {
         state.hints.art = true;
-        saveDailyState();
+        persistCurrentState();
         renderHints();
       }
     });
@@ -1054,21 +1340,23 @@
       renderHints();
     });
 
-    const btnResetDaily = document.getElementById("btn-reset-daily");
-    if (btnResetDaily) {
-      btnResetDaily.addEventListener("click", () => {
-        localStorage.removeItem("boardle_daily_v2");
-        localStorage.removeItem("boardle_stats_v1");
-        el.modalStats.classList.add("hidden");
-        startDailyGame();
-        showToast("오늘의 게임 기록이 초기화되었습니다.");
-      });
-    }
-
     el.btnHelp.addEventListener("click", () => el.modalHelp.classList.remove("hidden"));
     el.btnStats.addEventListener("click", () => {
       renderStatsModal();
       el.modalStats.classList.remove("hidden");
+    });
+
+    el.tabStatsDaily.addEventListener("click", () => {
+      state.statsTab = "daily";
+      renderStatsModal();
+    });
+    el.tabStatsEndless.addEventListener("click", () => {
+      state.statsTab = "endless";
+      renderStatsModal();
+    });
+    el.tabStatsGlobal.addEventListener("click", () => {
+      state.statsTab = "global";
+      renderStatsModal();
     });
 
     document.querySelectorAll("[data-close]").forEach((btn) => {
@@ -1077,7 +1365,7 @@
       });
     });
 
-    [el.modalHelp, el.modalStats].forEach((modal) => {
+    [el.modalHelp, el.modalStats, el.modalArchive].forEach((modal) => {
       modal.addEventListener("click", (e) => {
         if (e.target === modal) modal.classList.add("hidden");
       });
@@ -1090,7 +1378,7 @@
       return;
     }
     bindEvents();
-    startDailyGame();
+    startDailyGame(getTodayKey());
   }
 
   init();

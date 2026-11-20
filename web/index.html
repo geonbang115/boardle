@@ -12,7 +12,7 @@
       <div class="brand">
         <span class="brand-badge">🎲</span>
         <div>
-          <h1>BOARDLE</h1>
+          <h1>BOARDLE <span id="daily-issue-badge" class="issue-badge"></span></h1>
           <p class="subtitle">보드게임 속성 추리 게임</p>
         </div>
       </div>
@@ -22,6 +22,8 @@
           <button id="btn-mode-daily" class="mode-tab active" type="button">오늘의 게임</button>
           <button id="btn-mode-endless" class="mode-tab" type="button">무한 모드</button>
         </div>
+
+        <button id="btn-archive" class="archive-btn" type="button" title="지난 데일리 문제 도전">📅 지난 문제</button>
 
         <select id="pool-select" class="pool-select hidden" aria-label="출제 범위">
           <option value="easy">쉬움 (Top 150 + 파티50)</option>
@@ -41,7 +43,7 @@
           <input
             id="search-input"
             type="text"
-            placeholder="보드게임 한글명 또는 영문명을 입력하세요 (예: 브라스, 카탄, Terraforming)"
+            placeholder="보드게임 한글명·초성·영문명을 입력하세요 (예: 브라스, ㅂㄹㅅ, Terraforming)"
             autocomplete="off"
             aria-label="보드게임 검색"
           />
@@ -51,7 +53,8 @@
         <div class="status-bar">
           <div class="status-metrics">
             <span id="attempt-counter" class="attempt-counter">시도: 0 / 5</span>
-            <span id="hint-counter" class="hint-counter">사용한 힌트: 0개</span>
+            <span id="hint-counter" class="hint-counter">힌트: 3회 시도 후 해금</span>
+            <span id="endless-streak-badge" class="streak-badge hidden">🔥 연승: 0</span>
           </div>
 
           <div id="hint-controls" class="hint-controls">
@@ -87,18 +90,30 @@
       <section id="result-banner" class="result-banner hidden" aria-live="polite"></section>
 
       <section class="grid-section">
+        <div class="grid-toolbar">
+          <span class="grid-toolbar-title">추측 기록</span>
+          <button id="btn-criteria-help" class="criteria-help-btn" type="button">❓ 색상 판정 기준 보기</button>
+        </div>
+
+        <div id="criteria-panel" class="criteria-panel hidden">
+          <div class="criteria-item"><strong>난이도 (웨이트):</strong> 🟩 ±0.15 이내 · 🟨 ±0.50 이내 · ▲ 더 어려움 / ▼ 더 쉬움</div>
+          <div class="criteria-item"><strong>플레이 타임:</strong> 🟩 범위 동일 또는 중간값 ±10분 · 🟨 구간 겹침 또는 중간값 ±30분 · ▲ 더 김 / ▼ 더 짧음</div>
+          <div class="criteria-item"><strong>메커니즘 / 테마:</strong> 🟩 2개 이상 일치(또는 전부 일치) · 🟨 1개 일치 · 일치한 태그는 초록 칩으로 강조 및 상단 단서 보드 누적</div>
+          <div class="criteria-item"><strong>연도 / 최소·최대 인원:</strong> 🟩 정확히 일치 · 🟨 연도 ±3년 / 인원 ±1명 이내 · ▲ 높음 / ▼ 낮음</div>
+        </div>
+
         <div class="table-scroll">
           <table class="guess-table">
             <thead>
               <tr>
                 <th class="col-game">게임</th>
                 <th class="col-num">출시 연도</th>
-                <th class="col-num"><span class="th-with-help">난이도<button type="button" class="attr-help-btn" data-help-attr="diff" aria-label="난이도 기준">?</button></span></th>
+                <th class="col-num">난이도</th>
                 <th class="col-num">최소 인원</th>
                 <th class="col-num">최대 인원</th>
-                <th class="col-time"><span class="th-with-help">플레이 타임<button type="button" class="attr-help-btn" data-help-attr="time" aria-label="플레이 타임 기준">?</button></span></th>
-                <th class="col-tags"><span class="th-with-help">메커니즘<button type="button" class="attr-help-btn" data-help-attr="mech" aria-label="메커니즘 기준">?</button></span></th>
-                <th class="col-tags"><span class="th-with-help">테마<button type="button" class="attr-help-btn" data-help-attr="theme" aria-label="테마 기준">?</button></span></th>
+                <th class="col-time">플레이 타임</th>
+                <th class="col-tags">메커니즘</th>
+                <th class="col-tags">테마</th>
               </tr>
             </thead>
             <tbody id="guess-tbody"></tbody>
@@ -121,21 +136,18 @@
       <div class="modal-body">
         <p><strong>5번의 시도</strong> 안에 숨겨진 보드게임을 맞혀 보세요. 보드게임을 입력할 때마다 정답과의 속성 차이를 색상과 화살표로 알려줍니다.</p>
         <ul class="legend-list">
-          <li><span class="pill green">초록</span> 정확히 일치 (난이도는 ±0.15 이내)</li>
-          <li><span class="pill yellow">노랑</span> 근접 또는 일부 일치</li>
+          <li><span class="pill green">초록</span> 정확히 일치 (난이도 ±0.15 / 메커니즘·테마 2개 이상)</li>
+          <li><span class="pill yellow">노랑</span> 근접 또는 1개 일치</li>
           <li><span class="pill gray">회색</span> 일치하지 않음</li>
           <li><strong>▲ / ▼</strong> 정답의 값이 입력한 게임보다 높음(▲) 또는 낮음(▼)</li>
         </ul>
         <div class="rule-detail">
-          <p><strong>속성별 판정 기준</strong></p>
+          <p><strong>힌트 &amp; 연승 규칙</strong></p>
           <ul>
-            <li><strong>출시 연도:</strong> ±3년 이내 노랑</li>
-            <li><strong>난이도:</strong> ±0.15 이내 초록, ±0.50 이내 노랑</li>
-            <li><strong>최소 / 최대 인원:</strong> ±1명 차이 노랑</li>
-            <li><strong>플레이 타임:</strong> 구간 겹침 또는 중간값 ±30분 이내 노랑</li>
-            <li><strong>메커니즘 / 테마:</strong> 2개 이상 일치 시 초록, 1개 일치 시 노랑 + <strong>일치한 태그는 상단 단서 보드에 자동 누적</strong></li>
+            <li><strong>힌트:</strong> 3회 시도 후부터 턴마다 1개씩 사용 가능하며, 5회 실패 후 '계속 풀기'에서는 무제한으로 열 수 있습니다.</li>
+            <li><strong>데일리 연승:</strong> 매일 당일 문제를 연속으로 맞히면 연승이 이어지며, 하루라도 건너뛰면 연승이 초기화됩니다.</li>
+            <li><strong>지난 문제:</strong> 상단 <code>📅 지난 문제</code>에서 과거 회차(#1, #2...)를 자유롭게 도전할 수 있습니다.</li>
           </ul>
-          <p style="margin-top: 10px;"><strong>힌트 시스템:</strong> 초성 1글자씩 공개, 디자이너 공개, 박스아트 중앙 1/9 공개, 원하는 속성 1개 정확히 공개를 사용할 수 있으며 사용한 힌트 수가 기록됩니다.</p>
         </div>
       </div>
     </div>
@@ -145,19 +157,35 @@
   <div id="modal-stats" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="stats-title">
     <div class="modal-card">
       <div class="modal-header">
-        <h2 id="stats-title">플레이 통계 (오늘의 게임)</h2>
+        <h2 id="stats-title">플레이 통계</h2>
         <button class="modal-close" type="button" data-close="modal-stats">✕</button>
       </div>
+      <div class="stats-tabs" role="tablist">
+        <button id="tab-stats-daily" class="stats-tab active" type="button">오늘의 게임</button>
+        <button id="tab-stats-endless" class="stats-tab" type="button">무한 모드</button>
+        <button id="tab-stats-global" class="stats-tab" type="button">전체 통계</button>
+      </div>
       <div id="stats-body" class="modal-body"></div>
-      <div class="modal-footer">
-        <button id="btn-reset-daily" class="btn-secondary" type="button">🔄 오늘 기록 초기화 (테스트용)</button>
+    </div>
+  </div>
+
+  <!-- 지난 문제 (아카이브) 모달 -->
+  <div id="modal-archive" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="archive-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="archive-title">📅 지난 데일리 문제</h2>
+        <button class="modal-close" type="button" data-close="modal-archive">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="archive-note">과거 회차 문제를 자유롭게 풀어볼 수 있습니다. (당일 연승 기록에는 반영되지 않습니다)</p>
+        <div id="archive-list" class="archive-list"></div>
       </div>
     </div>
   </div>
 
-  <div id="attr-tooltip-popover" class="attr-tooltip-popover hidden" role="tooltip"></div>
   <div id="toast" class="toast hidden" role="status"></div>
 
+  <script src="supabase-config.js"></script>
   <script src="data/games.js"></script>
   <script src="app.js"></script>
 </body>

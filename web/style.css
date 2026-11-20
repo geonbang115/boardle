@@ -72,6 +72,20 @@ body {
   font-size: 22px;
   letter-spacing: 0.08em;
   font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.issue-badge {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.14);
+  border: 1px solid rgba(88, 166, 255, 0.35);
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 
 .subtitle {
@@ -113,6 +127,7 @@ body {
 
 .pool-select,
 .new-game-btn,
+.archive-btn,
 .icon-btn {
   background: var(--surface);
   color: var(--text);
@@ -122,6 +137,11 @@ body {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.archive-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .new-game-btn {
@@ -285,6 +305,16 @@ body {
   border-radius: 999px;
 }
 
+.streak-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffa657;
+  background: rgba(255, 166, 87, 0.14);
+  border: 1px solid rgba(255, 166, 87, 0.35);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
 .attr-picker {
   margin-top: 10px;
   padding: 10px 12px;
@@ -429,6 +459,16 @@ body {
   border: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.hint-crop-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
 }
 
 .hint-crop-img {
@@ -438,6 +478,10 @@ body {
   transform: scale(5);
   transform-origin: center center;
   filter: blur(1.5px);
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
 }
 
 .hint-choseong-text {
@@ -536,6 +580,54 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+}
+
+.grid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.grid-toolbar-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.criteria-help-btn {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.criteria-help-btn:hover,
+.criteria-help-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.criteria-panel {
+  padding: 12px 14px;
+  background: rgba(88, 166, 255, 0.07);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #d7e0ea;
+}
+
+.criteria-item strong {
+  color: var(--accent);
 }
 
 .table-scroll {
@@ -770,6 +862,98 @@ body {
   color: var(--muted);
 }
 
+.stats-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  background: var(--surface-2);
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.stats-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.stats-tab.active {
+  background: var(--accent);
+  color: #0b1117;
+}
+
+.archive-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.archive-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.archive-item:hover {
+  border-color: var(--accent);
+}
+
+.archive-item.current {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.12);
+}
+
+.archive-status {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.endless-tier-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.endless-tier-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.endless-tier-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #d7e0ea;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -983,17 +1167,17 @@ body {
 
 @media (max-width: 480px) {
   .guess-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .guess-row td[data-label="최소 인원"],
-  .guess-row td[data-label="최대 인원"],
-  .guess-row td[data-label="플레이 타임"] {
-    grid-column: span 1;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .guess-row td[data-label="출시 연도"],
-  .guess-row td[data-label="난이도"] {
-    grid-column: span 1;
+  .guess-row td[data-label="난이도"],
+  .guess-row td[data-label="플레이 타임"] {
+    grid-column: span 2;
+  }
+
+  .guess-row td[data-label="최소 인원"],
+  .guess-row td[data-label="최대 인원"] {
+    grid-column: span 3;
   }
 }

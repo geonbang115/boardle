@@ -1115,28 +1115,68 @@ body {
 
   .guess-row {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 6px;
     padding: 10px;
     background: rgba(255, 255, 255, 0.025);
     border: 1px solid var(--border);
     border-radius: 10px;
+    width: 100%;
+    max-width: 100%;
   }
 
   .guess-row td {
     width: auto;
+    min-width: 0;
     padding: 7px 4px;
+    word-break: keep-all;
   }
 
   .guess-row td.cell-game {
+    order: 1;
     grid-column: 1 / -1;
     padding: 8px 10px;
   }
 
-  .guess-row td[data-label="메커니즘"],
-  .guess-row td[data-label="테마"] {
+  .guess-row td[data-label="출시 연도"] {
+    order: 2;
+    grid-column: span 2;
+  }
+
+  .guess-row td[data-label="난이도"] {
+    order: 3;
+    grid-column: span 2;
+  }
+
+  .guess-row td[data-label="플레이 타임"] {
+    order: 4;
+    grid-column: span 2;
+  }
+
+  .guess-row td[data-label="최소 인원"] {
+    order: 5;
+    grid-column: span 3;
+  }
+
+  .guess-row td[data-label="최대 인원"] {
+    order: 6;
+    grid-column: span 3;
+  }
+
+  .guess-row td[data-label="메커니즘"] {
+    order: 7;
     grid-column: 1 / -1;
     padding: 8px;
+  }
+
+  .guess-row td[data-label="테마"] {
+    order: 8;
+    grid-column: 1 / -1;
+    padding: 8px;
+  }
+
+  .tag-chip {
+    white-space: normal;
   }
 
   .mobile-attr-label {
@@ -1150,34 +1190,11 @@ body {
     margin-bottom: 3px;
   }
 
-  .mobile-attr-label .attr-help-btn {
-    width: 14px;
-    height: 14px;
-    font-size: 9px;
-  }
-
   .num-val {
     font-size: 12px;
   }
 
   .num-dir {
     font-size: 10px;
-  }
-}
-
-@media (max-width: 480px) {
-  .guess-row {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-
-  .guess-row td[data-label="출시 연도"],
-  .guess-row td[data-label="난이도"],
-  .guess-row td[data-label="플레이 타임"] {
-    grid-column: span 2;
-  }
-
-  .guess-row td[data-label="최소 인원"],
-  .guess-row td[data-label="최대 인원"] {
-    grid-column: span 3;
   }
 }

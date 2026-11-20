@@ -315,7 +315,7 @@
   }
 
   function getAllowedHints() {
-    return Math.max(0, state.guesses.length - 2);
+    return Math.min(3, Math.max(0, state.guesses.length - 1));
   }
 
   function getHintCount() {
@@ -695,8 +695,8 @@
 
     if (isPostLossPractice()) {
       el.hintCounter.textContent = `힌트: ${totalHints}개 사용 (무제한)`;
-    } else if (state.guesses.length < 3 && isInputActive()) {
-      el.hintCounter.textContent = "힌트: 3회 시도 후 해금";
+    } else if (state.guesses.length < 2 && isInputActive()) {
+      el.hintCounter.textContent = "힌트: 2회 시도 후 해금";
     } else {
       el.hintCounter.textContent = `힌트: ${totalHints} / ${allowedHints}개 사용`;
     }
@@ -709,7 +709,7 @@
     el.btnHintDesigner.classList.toggle("used", h.designer);
 
     el.btnHintArt.disabled = !canSpend || h.art || !state.target.thumb;
-    el.btnHintArt.textContent = state.target.thumb ? "🖼️ 박스아트(일부)" : "🖼️ 박스아트(없음)";
+    el.btnHintArt.textContent = state.target.thumb ? "🖼️ 박스아트(일부·블러)" : "🖼️ 박스아트(없음)";
     el.btnHintArt.classList.toggle("used", h.art);
 
     el.btnHintAttrToggle.disabled = !canSpend;
@@ -790,14 +790,15 @@
   }
 
   function renderHeaderBadges() {
+    const activeDate = state.dailyDateKey || getTodayKey();
+    const issueNum = getIssueNumber(activeDate);
     if (state.mode === "daily") {
-      const issueNum = getIssueNumber(state.dailyDateKey);
-      const isToday = state.dailyDateKey === getTodayKey();
-      el.issueBadge.textContent = isToday ? `#${issueNum}` : `#${issueNum} (지난 문제)`;
-      el.issueBadge.classList.remove("hidden");
+      const isToday = activeDate === getTodayKey();
+      el.btnDaily.textContent = isToday ? `오늘의 게임 #${issueNum}` : `오늘의 게임 #${issueNum} (지난)`;
       el.endlessStreakBadge.classList.add("hidden");
     } else {
-      el.issueBadge.classList.add("hidden");
+      const todayNum = getIssueNumber(getTodayKey());
+      el.btnDaily.textContent = `오늘의 게임 #${todayNum}`;
       const eStats = loadEndlessStats()[state.endlessPool];
       el.endlessStreakBadge.textContent = `🔥 연승: ${eStats.streak} (최고 ${eStats.maxStreak})`;
       el.endlessStreakBadge.classList.remove("hidden");
@@ -845,14 +846,14 @@
           </div>
         </div>
         <div class="result-actions">
-          ${state.mode === "daily" ? `<button id="btn-share" class="btn-primary" type="button">📋 결과 공유</button>` : ""}
+          <button id="btn-share" class="btn-primary" type="button">📋 결과 공유</button>
           ${state.target.url ? `<a class="btn-secondary" href="${state.target.url}" target="_blank" rel="noopener">보드라이프 보기</a>` : ""}
           ${state.mode === "endless" ? `<button id="btn-banner-new" class="btn-primary" type="button">🔄 다음 문제</button>` : ""}
         </div>
       `;
 
       const btnShare = document.getElementById("btn-share");
-      if (btnShare) btnShare.addEventListener("click", shareDailyResult);
+      if (btnShare) btnShare.addEventListener("click", shareResult);
       const btnBannerNew = document.getElementById("btn-banner-new");
       if (btnBannerNew) btnBannerNew.addEventListener("click", () => startEndlessGame(true));
       el.resultBanner.classList.remove("hidden");
@@ -870,7 +871,7 @@
       <div class="result-actions">
         ${!state.continueAfterLoss ? `<button id="btn-continue-practice" class="btn-primary" type="button">💡 계속 풀기</button>` : ""}
         <button id="btn-reveal-answer" class="btn-secondary" type="button">👀 정답 보기</button>
-        ${state.mode === "daily" ? `<button id="btn-share" class="btn-secondary" type="button">📋 결과 공유</button>` : ""}
+        <button id="btn-share" class="btn-secondary" type="button">📋 결과 공유</button>
       </div>
     `;
 
@@ -893,7 +894,7 @@
       });
     }
     const btnShare = document.getElementById("btn-share");
-    if (btnShare) btnShare.addEventListener("click", shareDailyResult);
+    if (btnShare) btnShare.addEventListener("click", shareResult);
 
     el.resultBanner.classList.remove("hidden");
   }
@@ -906,8 +907,7 @@
     renderStatusAndBanner();
   }
 
-  function shareDailyResult() {
-    const issueNum = getIssueNumber(state.dailyDateKey);
+  function shareResult() {
     const firstFive = state.guesses.slice(0, MAX_ATTEMPTS);
     const score = state.status === "won" ? `${firstFive.length}/${MAX_ATTEMPTS}` : `X/${MAX_ATTEMPTS}`;
     const hintCount = getHintCount();
@@ -924,7 +924,17 @@
         emojiMap[ev.theme.status],
       ].join("");
     });
-    const text = `🎲 BOARDLE #${issueNum} (${state.dailyDateKey}) · ${score} · 💡힌트 ${hintCount}\n${rows.join("\n")}`;
+
+    const tierShort = { easy: "쉬움", normal: "보통", hard: "어려움" };
+    let headerText = "";
+    if (state.mode === "daily") {
+      const issueNum = getIssueNumber(state.dailyDateKey);
+      headerText = `🎲 BOARDLE 오늘의 게임 #${issueNum} (${state.dailyDateKey}) · ${score} · 💡힌트 ${hintCount}`;
+    } else {
+      headerText = `🎲 BOARDLE 무한 모드(${tierShort[state.endlessPool] || "보통"}) · ${score} · 💡힌트 ${hintCount}`;
+    }
+
+    const text = `${headerText}\n${rows.join("\n")}`;
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(
         () => showToast("결과가 클립보드에 복사되었습니다!"),
@@ -1000,6 +1010,21 @@
     state.acResults = [];
   }
 
+  function getMatchPriority(g, normQuery) {
+    const krNorm = normalizeQuery(g.kr);
+    const enNorm = normalizeQuery(g.en);
+    const skNorm = normalizeQuery(g.sk);
+
+    if (krNorm.startsWith(normQuery) || enNorm.startsWith(normQuery)) return 0;
+    if (/[ㄱ-ㅎ]/.test(normQuery)) {
+      const krCho = getChoseongChars(g.kr).join("");
+      if (krCho.startsWith(normQuery)) return 0;
+    }
+    if (matchesKoreanQuery(g.kr, normQuery) || enNorm.includes(normQuery)) return 1;
+    if (skNorm && matchesKoreanQuery(skNorm, normQuery)) return 2;
+    return -1;
+  }
+
   function updateAutocomplete(query) {
     const norm = normalizeQuery(query);
     if (!norm) {
@@ -1008,19 +1033,18 @@
     }
 
     const guessedIds = new Set(state.guesses.map((g) => g.id));
-    const matches = [];
+    const scored = [];
     for (const g of ALL_GAMES) {
       if (guessedIds.has(g.id)) continue;
-      const enNorm = normalizeQuery(g.en);
-      if (
-        matchesKoreanQuery(g.kr, norm) ||
-        enNorm.includes(norm) ||
-        (g.sk && matchesKoreanQuery(g.sk, norm))
-      ) {
-        matches.push(g);
-        if (matches.length >= 12) break;
+      const prio = getMatchPriority(g, norm);
+      if (prio >= 0) {
+        const popRank = Math.min(g.blRank || 99999, g.bggRank || 99999);
+        scored.push({ game: g, prio, popRank });
       }
     }
+
+    scored.sort((a, b) => a.prio - b.prio || a.popRank - b.popRank);
+    const matches = scored.slice(0, 12).map((item) => item.game);
 
     state.acResults = matches;
     state.acIndex = matches.length > 0 ? 0 : -1;
